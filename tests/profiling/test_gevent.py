@@ -16,6 +16,51 @@ GEVENT_COMPATIBLE_WITH_PYTHON_VERSION = os.getenv("DD_PROFILE_TEST_GEVENT", Fals
     reason=f"gevent is not compatible with Python {'.'.join(map(str, tuple(sys.version_info)[:3]))}",
 )
 @pytest.mark.subprocess()
+def test_untrack_parent_before_child_no_keyerror() -> None:
+    """Untracking a parent greenlet before its linked child must not raise KeyError.
+
+    When _untrack_greenlet_by_id(parent) is called, _parent_greenlet_count[parent]
+    is popped. If the child is later untracked and tries to decrement that entry,
+    a KeyError was raised. This test verifies the fix.
+    """
+    from ddtrace.profiling import _gevent as _gevent_module
+
+    saved_tracked = set(_gevent_module._tracked_greenlets)
+    saved_count = dict(_gevent_module._parent_greenlet_count)
+    saved_map = dict(_gevent_module._greenlet_parent_map)
+
+    try:
+        with patch.object(_gevent_module, "stack"):
+            parent_id, child_id = 100001, 100002
+            _gevent_module._tracked_greenlets.update({parent_id, child_id})
+            _gevent_module.link_greenlets(child_id, parent_id)
+
+            assert _gevent_module._parent_greenlet_count.get(parent_id) == 1
+
+            _gevent_module._untrack_greenlet_by_id(parent_id)
+
+            assert parent_id not in _gevent_module._tracked_greenlets
+            assert parent_id not in _gevent_module._parent_greenlet_count
+
+            _gevent_module._untrack_greenlet_by_id(child_id)
+
+            assert child_id not in _gevent_module._tracked_greenlets
+            assert child_id not in _gevent_module._greenlet_parent_map
+            assert parent_id not in _gevent_module._parent_greenlet_count
+    finally:
+        _gevent_module._tracked_greenlets.clear()
+        _gevent_module._tracked_greenlets.update(saved_tracked)
+        _gevent_module._parent_greenlet_count.clear()
+        _gevent_module._parent_greenlet_count.update(saved_count)
+        _gevent_module._greenlet_parent_map.clear()
+        _gevent_module._greenlet_parent_map.update(saved_map)
+
+
+@pytest.mark.skipif(
+    not GEVENT_COMPATIBLE_WITH_PYTHON_VERSION,
+    reason=f"gevent is not compatible with Python {'.'.join(map(str, tuple(sys.version_info)[:3]))}",
+)
+@pytest.mark.subprocess()
 def test_joinall_links_to_calling_greenlet_not_hub() -> None:
     """joinall must link joined greenlets to the *calling* Greenlet, not the Hub.
 

@@ -1,0 +1,5 @@
+---
+fixes:
+  - |
+    profiling: A rare ``KeyError`` that could happen when untracking greenlets
+    has been fixed.
