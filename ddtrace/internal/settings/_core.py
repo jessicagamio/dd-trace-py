@@ -1,5 +1,6 @@
 from collections import ChainMap
 from enum import Enum
+from typing import Any
 from typing import Optional
 
 from envier import Env
@@ -22,6 +23,19 @@ class ValueSource(str, Enum):
     OTEL_ENV_VAR = "otel_env_var"
 
 
+class _ParsedValues:
+    """Namespace of original parsed config values, populated at initialization time.
+
+    Mirrors the config attribute structure so that values can be accessed like
+    ``config.parsed.enabled`` instead of ``config.enabled``, regardless of any
+    runtime attribute overrides applied to the config object after construction.
+    Nested sub-configs expose their own ``parsed`` namespace on their instance.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        raise AttributeError(name)
+
+
 class DDConfig(Env):
     """Provides support for loading configurations from multiple sources."""
 
@@ -40,6 +54,14 @@ class DDConfig(Env):
 
         # Parse the configuration and initialize the values
         super().__init__(source=full_source, parent=parent, dynamic=dynamic)
+
+        # Shallow pass: cache each direct config item's parsed value before any
+        # runtime overrides can be applied.  Nested sub-config instances handle
+        # their own `parsed` namespace.
+        self.parsed: _ParsedValues = _ParsedValues()
+        for name, e in type(self).items():
+            if not e.private:
+                setattr(self.parsed, name, getattr(self, name))
 
         # Initialize the value sources
         self._value_source = {}

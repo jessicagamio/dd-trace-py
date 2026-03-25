@@ -7,6 +7,7 @@ import pytest
 from ddtrace._trace.product import apm_tracing_rc
 from ddtrace.internal.remoteconfig import Payload
 from ddtrace.internal.settings._config import Config
+from ddtrace.internal.settings._core import DDConfig
 from tests.utils import remote_config_build_payload as build_payload
 from tests.utils import scoped_tracer
 
@@ -687,3 +688,44 @@ def test_remoteconfig_debug_logging():
     assert sorted(mock_log.debug.call_args_list) == sorted(expected_logs), (
         f"expected: {expected_logs} got: {mock_log.debug.call_args_list}"
     )
+
+
+class _TestConfig(DDConfig):
+    __prefix__ = "ddtest"
+
+    flag = DDConfig.v(bool, "flag", default=False)
+    count = DDConfig.v(int, "count", default=0)
+
+
+def test_parsed_reflects_stable_source_values(monkeypatch):
+    monkeypatch.setenv("DDTEST_FLAG", "true")
+    monkeypatch.setenv("DDTEST_COUNT", "42")
+
+    cfg = _TestConfig()
+
+    assert getattr(cfg, "flag") is True
+    assert getattr(cfg, "count") == 42
+    assert cfg.parsed.flag is True
+    assert cfg.parsed.count == 42
+
+
+def test_parsed_unaffected_by_runtime_override(monkeypatch):
+    monkeypatch.setenv("DDTEST_FLAG", "true")
+    monkeypatch.setenv("DDTEST_COUNT", "7")
+
+    cfg = _TestConfig()
+
+    setattr(cfg, "flag", False)
+    setattr(cfg, "count", 99)
+
+    assert getattr(cfg, "flag") is False
+    assert getattr(cfg, "count") == 99
+    assert cfg.parsed.flag is True
+    assert cfg.parsed.count == 7
+
+
+def test_parsed_uses_defaults_when_env_not_set():
+    cfg = _TestConfig()
+
+    assert cfg.parsed.flag is False
+    assert cfg.parsed.count == 0
